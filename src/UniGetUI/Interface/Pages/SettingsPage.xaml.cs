@@ -1,22 +1,17 @@
 using CommunityToolkit.WinUI.Controls;
+using ExternalLibraries.Clipboard;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using UniGetUI.Core;
 using UniGetUI.Core.Data;
-using ExternalLibraries.Clipboard;
-using UniGetUI.Interface.Widgets;
-using UniGetUI.PackageEngine.Classes;
-using UniGetUI.Core.Logging;
 using UniGetUI.Core.Language;
-using UniGetUI.Core.Tools;
+using UniGetUI.Core.Logging;
 using UniGetUI.Core.SettingsEngine;
+using UniGetUI.Core.Tools;
+using UniGetUI.Interface.Widgets;
+using UniGetUI.PackageEngine;
 using UniGetUI.PackageEngine.ManagerClasses.Manager;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -29,9 +24,9 @@ namespace UniGetUI.Interface
     /// </summary>
     public sealed partial class SettingsInterface : Page
     {
-        HyperlinkButton ResetBackupDirectory;
-        HyperlinkButton OpenBackupDirectory;
-        TextBlock BackupDirectoryLabel;
+        readonly HyperlinkButton ResetBackupDirectory;
+        readonly HyperlinkButton OpenBackupDirectory;
+        readonly TextBlock BackupDirectoryLabel;
 
 
         public SettingsInterface()
@@ -44,7 +39,9 @@ namespace UniGetUI.Interface
             foreach (string key in lang_dict.Keys)
             {
                 if (LanguageData.TranslationPercentages.ContainsKey(key) && key != "en")
+                {
                     lang_dict[key] = lang_dict[key] + " (" + LanguageData.TranslationPercentages[key] + ")";
+                }
             }
 
             bool isFirst = true;
@@ -79,7 +76,9 @@ namespace UniGetUI.Interface
             UpdatesCheckIntervalSelector.ShowAddedItems();
 
             if (Settings.GetValue("PreferredTheme") == "")
+            {
                 Settings.SetValue("PreferredTheme", "auto");
+            }
 
             ThemeSelector.AddItem(CoreTools.AutoTranslated("Light"), "light");
             ThemeSelector.AddItem(CoreTools.AutoTranslated("Dark"), "dark");
@@ -99,7 +98,7 @@ namespace UniGetUI.Interface
 
             // Admin Settings Section
             int index = 2;
-            foreach (PackageManager manager in MainApp.Instance.PackageManagerList)
+            foreach (PackageManager manager in PEInterface.Managers)
             {
             }
 
@@ -111,7 +110,7 @@ namespace UniGetUI.Interface
             Dictionary<PackageManager, SettingsEntry> PackageManagerExpanders = new();
             Dictionary<PackageManager, List<SettingsCard>> ExtraSettingsCards = new();
 
-            foreach (PackageManager Manager in MainApp.Instance.PackageManagerList)
+            foreach (PackageManager Manager in PEInterface.Managers)
             {
                 ExtraSettingsCards.Add(Manager, new List<SettingsCard>());
             }
@@ -123,19 +122,19 @@ namespace UniGetUI.Interface
                 CoreTools.LaunchBatchFile(Path.Join(CoreData.UniGetUIExecutableDirectory, "Assets", "Utilities", "reset_winget_sources.cmd"), CoreTools.Translate("Resetting Winget sources - WingetUI"), RunAsAdmin: true);
             };
 
-            ExtraSettingsCards[MainApp.Winget].Add(Winget_ResetSources);
+            ExtraSettingsCards[PEInterface.WinGet].Add(Winget_ResetSources);
 
             ButtonCard Scoop_Install = new() { Text = CoreTools.AutoTranslated("Install Scoop"), ButtonText = CoreTools.AutoTranslated("Install") };
             Scoop_Install.Click += (s, e) =>
             {
                 CoreTools.LaunchBatchFile(Path.Join(CoreData.UniGetUIExecutableDirectory, "Assets", "Utilities", "install_scoop.cmd"), CoreTools.Translate("Scoop Installer - WingetUI"));
-                PackageManagerExpanders[MainApp.Scoop].ShowRestartRequiredBanner();
+                PackageManagerExpanders[PEInterface.Scoop].ShowRestartRequiredBanner();
             };
             ButtonCard Scoop_Uninstall = new() { Text = CoreTools.AutoTranslated("Uninstall Scoop (and its packages)"), ButtonText = CoreTools.AutoTranslated("Uninstall") };
             Scoop_Uninstall.Click += (s, e) =>
             {
                 CoreTools.LaunchBatchFile(Path.Join(CoreData.UniGetUIExecutableDirectory, "Assets", "Utilities", "uninstall_scoop.cmd"), CoreTools.Translate("Scoop Uninstaller - WingetUI"));
-                PackageManagerExpanders[MainApp.Scoop].ShowRestartRequiredBanner();
+                PackageManagerExpanders[PEInterface.Scoop].ShowRestartRequiredBanner();
             };
             ButtonCard Scoop_ResetAppCache = new() { Text = CoreTools.AutoTranslated("Run cleanup and clear cache"), ButtonText = CoreTools.AutoTranslated("Run") };
             Scoop_ResetAppCache.Click += (s, e) =>
@@ -143,21 +142,21 @@ namespace UniGetUI.Interface
                 CoreTools.LaunchBatchFile(Path.Join(CoreData.UniGetUIExecutableDirectory, "Assets", "Utilities", "scoop_cleanup.cmd"), CoreTools.Translate("Clearing Scoop cache - WingetUI"), RunAsAdmin: true);
             };
 
-            ExtraSettingsCards[MainApp.Scoop].Add(Scoop_Install);
-            ExtraSettingsCards[MainApp.Scoop].Add(Scoop_Uninstall);
-            ExtraSettingsCards[MainApp.Scoop].Add(Scoop_ResetAppCache);
+            ExtraSettingsCards[PEInterface.Scoop].Add(Scoop_Install);
+            ExtraSettingsCards[PEInterface.Scoop].Add(Scoop_Uninstall);
+            ExtraSettingsCards[PEInterface.Scoop].Add(Scoop_ResetAppCache);
 
             CheckboxCard Chocolatey_SystemChoco = new() { Text = CoreTools.AutoTranslated("Use system Chocolatey"), SettingName = "UseSystemChocolatey" };
             Chocolatey_SystemChoco.StateChanged += (s, e) =>
             {
-                PackageManagerExpanders[MainApp.Choco].ShowRestartRequiredBanner();
+                PackageManagerExpanders[PEInterface.Chocolatey].ShowRestartRequiredBanner();
             };
 
-            ExtraSettingsCards[MainApp.Choco].Add(Chocolatey_SystemChoco);
+            ExtraSettingsCards[PEInterface.Chocolatey].Add(Chocolatey_SystemChoco);
 
 
 
-            foreach (PackageManager Manager in MainApp.Instance.PackageManagerList)
+            foreach (PackageManager Manager in PEInterface.Managers)
             {
 
                 SettingsEntry ManagerExpander = new()
@@ -191,7 +190,9 @@ namespace UniGetUI.Interface
                         ManagerStatus.Severity = InfoBarSeverity.Success;
                         ManagerStatus.Title = CoreTools.Translate("{pm} is enabled and ready to go", new Dictionary<string, object?>{ { "pm", Manager.Name } });
                         if (!Manager.Status.Version.Contains("\n"))
+                        {
                             ManagerStatus.Message = CoreTools.Translate("{pm} version:", new Dictionary<string, object?>{ { "pm", Manager.Name } }) + " " + Manager.Status.Version;
+                        }
                         else if (ShowVersion)
                         {
                             ManagerStatus.Message = CoreTools.Translate("{pm} version:", new Dictionary<string, object?>{ { "pm", Manager.Name } });
@@ -242,13 +243,19 @@ namespace UniGetUI.Interface
                 void EnableOrDisableEntries()
                 {
                     if (ExtraSettingsCards.ContainsKey(Manager))
+                    {
                         foreach (SettingsCard card in ExtraSettingsCards[Manager])
                         {
                             if (ManagerSwitch.IsOn)
+                            {
                                 card.Visibility = Visibility.Visible;
+                            }
                             else
+                            {
                                 card.Visibility = Visibility.Collapsed;
+                            }
                         }
+                    }
                 }
 
 
@@ -289,10 +296,12 @@ namespace UniGetUI.Interface
                 }
 
                 if (ExtraSettingsCards.ContainsKey(Manager))
+                {
                     foreach (SettingsCard card in ExtraSettingsCards[Manager])
                     {
                         ManagerExpander.Items.Add(card);
                     }
+                }
 
                 SetManagerStatus(Manager);
                 EnableOrDisableEntries();
@@ -324,7 +333,9 @@ namespace UniGetUI.Interface
                 ResetWingetUI(sender, e);
                 Dictionary<string, string> settings = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(file)) ?? new();
                 foreach (KeyValuePair<string, string> entry in settings)
+                {
                     Settings.SetValue(entry.Key, entry.Value);
+                }
 
                 GeneralSettingsExpander.ShowRestartRequiredBanner();
             }
@@ -347,7 +358,10 @@ namespace UniGetUI.Interface
                     foreach (string path in Directory.EnumerateFiles(CoreData.UniGetUIDataDirectory))
                     {
                         if (Path.GetFileName(path).Contains('.') || IgnoredSettings.Contains(Path.GetFileName(path)))
+                        {
                             continue;
+                        }
+
                         settings.Add(Path.GetFileName(path), await File.ReadAllTextAsync(path));
                     }
 
@@ -426,26 +440,30 @@ namespace UniGetUI.Interface
         {
             string directory = Settings.GetValue("ChangeBackupOutputDirectory");
             if (directory == "")
+            {
                 directory = CoreData.UniGetUI_DefaultBackupDirectory;
+            }
 
             directory = directory.Replace("/", "\\");
 
             if (!Directory.Exists(directory))
+            {
                 Directory.CreateDirectory(directory);
+            }
+
             Process.Start("explorer.exe", directory);
 
         }
 
-        private void DoCacheAdminRights_StateChanged(object sender, Interface.Widgets.CheckBoxEventArgs e)
+        private void DoCacheAdminRights_StateChanged(object sender, CheckBoxEventArgs e)
         {
-            if (!e.IsChecked)
-            {
-                AdminSettingsExpander.ShowRestartRequiredBanner();
-            }
+            _ = CoreTools.ResetUACForCurrentProcess();
         }
 
-        private void UseSystemGSudo_StateChanged(object sender, Interface.Widgets.CheckBoxEventArgs e)
-        { AdminSettingsExpander.ShowRestartRequiredBanner(); }
+        private void UseSystemGSudo_StateChanged(object sender, CheckBoxEventArgs e)
+        {
+            AdminSettingsExpander.ShowRestartRequiredBanner();
+        }
 
         private void DisableWidgetsApi_StateChanged(object sender, CheckBoxEventArgs e)
         { ExperimentalSettingsExpander.ShowRestartRequiredBanner(); }
@@ -511,8 +529,10 @@ namespace UniGetUI.Interface
         public void EnablePackageBackupUI(bool enabled)
         {
             if (BackupNowButton == null)
+            {
                 return; // This could happen when this event is triggered but the SettingsPage
-                        // hasn't finished initializing yet.
+            }
+            // hasn't finished initializing yet.
             EnableBackupTimestampingCheckBox.IsEnabled = enabled;
             ChangeBackupFileNameTextBox.IsEnabled = enabled;
             ChangeBackupDirectory.IsEnabled = enabled;
@@ -531,6 +551,11 @@ namespace UniGetUI.Interface
                     ResetBackupDirectory.IsEnabled = true;
                 }
             }
+        }
+
+        private void UseUserGSudoToggle_StateChanged(object sender, CheckBoxEventArgs e)
+        {
+            ExperimentalSettingsExpander.ShowRestartRequiredBanner();
         }
     }
 }

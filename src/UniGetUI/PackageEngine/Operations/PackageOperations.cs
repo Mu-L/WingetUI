@@ -1,23 +1,13 @@
 ﻿using CommunityToolkit.WinUI.Notifications;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Documents;
-using Microsoft.UI.Xaml.Media;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading.Tasks;
-using UniGetUI.Core;
 using UniGetUI.Core.Data;
-using UniGetUI.Interface.Widgets;
-using UniGetUI.Interface.Enums;
 using UniGetUI.Core.Logging;
-using UniGetUI.PackageEngine.Classes;
 using UniGetUI.Core.SettingsEngine;
+using UniGetUI.Core.Tools;
+using UniGetUI.Interface.Enums;
 using UniGetUI.PackageEngine.Enums;
 using UniGetUI.PackageEngine.PackageClasses;
-using UniGetUI.PackageEngine.ManagerClasses;
-using UniGetUI.Core.Tools;
 
 namespace UniGetUI.PackageEngine.Operations
 {
@@ -48,6 +38,7 @@ namespace UniGetUI.PackageEngine.Operations
             if (!IGNORE_PARALLEL_OPERATION_SETTINGS && (Settings.Get("AllowParallelInstalls") || Settings.Get($"AllowParallelInstallsForManager{Package.Manager.Name}")))
             {
                 Logger.Debug("Parallel installs are allowed. Skipping queue check");
+                Package.SetTag(PackageTag.BeingProcessed);
                 return;
             }
 
@@ -71,11 +62,11 @@ namespace UniGetUI.PackageEngine.Operations
                 }
                 await Task.Delay(100);
             }
-
             Package.SetTag(PackageTag.BeingProcessed);
+
         }
 
-        public PackageOperation(Package package, bool IgnoreParallelInstalls = false) : this(package, new InstallationOptions(package), IgnoreParallelInstalls) { }
+        public PackageOperation(Package package, bool IgnoreParallelInstalls = false) : this(package, InstallationOptions.FromPackage(package), IgnoreParallelInstalls) { }
     }
 
     public class InstallPackageOperation : PackageOperation
@@ -83,20 +74,15 @@ namespace UniGetUI.PackageEngine.Operations
 
         public InstallPackageOperation(Package package, InstallationOptions options, bool IgnoreParallelInstalls = false) : base(package, options, IgnoreParallelInstalls) { }
         public InstallPackageOperation(Package package, bool IgnoreParallelInstalls = false) : base(package, IgnoreParallelInstalls) { }
-        protected override Process BuildProcessInstance(ProcessStartInfo startInfo)
+        protected override async Task<Process> BuildProcessInstance(ProcessStartInfo startInfo)
         {
             if (Options.RunAsAdministrator || Settings.Get("AlwaysElevate" + Package.Manager.Name))
             {
                 if (Settings.Get("DoCacheAdminRights") || Settings.Get("DoCacheAdminRightsForBatches"))
                 {
-                    Logger.Info("Caching admin rights for process id " + Process.GetCurrentProcess().Id);
-                    Process p = new();
-                    p.StartInfo.FileName = MainApp.Instance.GSudoPath;
-                    p.StartInfo.Arguments = "cache on --pid " + Process.GetCurrentProcess().Id + " -d 1";
-                    p.Start();
-                    p.WaitForExit();
+                    await CoreTools.CacheUACForCurrentProcess();
                 }
-                startInfo.FileName = MainApp.Instance.GSudoPath;
+                startInfo.FileName = CoreData.GSudoPath;
                 startInfo.Arguments = $"\"{Package.Manager.Status.ExecutablePath}\" " + Package.Manager.Properties.ExecutableCallArgs + " " + string.Join(" ", Package.Manager.GetInstallParameters(Package, Options));
 
             }
@@ -156,9 +142,13 @@ namespace UniGetUI.PackageEngine.Operations
             );
 
             if (result == ContentDialogResult.Primary)
+            {
                 return AfterFinshAction.Retry;
+            }
             else
+            {
                 return AfterFinshAction.ManualClose;
+            }
         }
 
         protected override async Task<AfterFinshAction> HandleSuccess()
@@ -166,10 +156,10 @@ namespace UniGetUI.PackageEngine.Operations
             LineInfoText = CoreTools.Translate("{package} was installed successfully", new Dictionary<string, object?>{ { "package", Package.Name } });
 
             Package.SetTag(PackageTag.AlreadyInstalled);
-            MainApp.Instance.MainWindow.NavigationPage.InstalledPage.AddInstalledPackage(Package);
+            PEInterface.InstalledPackagesLoader.AddForeign(Package);
 
             if (!Settings.Get("DisableSuccessNotifications") && !Settings.Get("DisableNotifications"))
-
+            {
                 try
                 {
                     new ToastContentBuilder()
@@ -184,6 +174,8 @@ namespace UniGetUI.PackageEngine.Operations
                     Logger.Warn("Failed to show toast notification");
                     Logger.Warn(ex);
                 }
+            }
+
             await Task.Delay(0);
             return AfterFinshAction.TimeoutClose;
         }
@@ -200,20 +192,15 @@ namespace UniGetUI.PackageEngine.Operations
 
         public UpdatePackageOperation(Package package, InstallationOptions options, bool IgnoreParallelInstalls = false) : base(package, options, IgnoreParallelInstalls) { }
         public UpdatePackageOperation(Package package, bool IgnoreParallelInstalls = false) : base(package, IgnoreParallelInstalls) { }
-        protected override Process BuildProcessInstance(ProcessStartInfo startInfo)
+        protected override async Task<Process> BuildProcessInstance(ProcessStartInfo startInfo)
         {
             if (Options.RunAsAdministrator || Settings.Get("AlwaysElevate" + Package.Manager.Name))
             {
                 if (Settings.Get("DoCacheAdminRights") || Settings.Get("DoCacheAdminRightsForBatches"))
                 {
-                    Logger.Info("Caching admin rights for process id " + Process.GetCurrentProcess().Id);
-                    Process p = new();
-                    p.StartInfo.FileName = MainApp.Instance.GSudoPath;
-                    p.StartInfo.Arguments = "cache on --pid " + Process.GetCurrentProcess().Id + " -d 1";
-                    p.Start();
-                    p.WaitForExit();
+                    await CoreTools.CacheUACForCurrentProcess();
                 }
-                startInfo.FileName = MainApp.Instance.GSudoPath;
+                startInfo.FileName = CoreData.GSudoPath;
                 startInfo.Arguments = $"\"{Package.Manager.Status.ExecutablePath}\" " + Package.Manager.Properties.ExecutableCallArgs + " " + string.Join(" ", Package.Manager.GetUpdateParameters(Package, Options));
             }
             else
@@ -272,9 +259,13 @@ namespace UniGetUI.PackageEngine.Operations
             );
 
             if (result == ContentDialogResult.Primary)
+            {
                 return AfterFinshAction.Retry;
+            }
             else
+            {
                 return AfterFinshAction.ManualClose;
+            }
         }
 
         protected override async Task<AfterFinshAction> HandleSuccess()
@@ -285,11 +276,14 @@ namespace UniGetUI.PackageEngine.Operations
             Package.GetAvailablePackage()?.SetTag(PackageTag.AlreadyInstalled);
 
             if(await Package.HasUpdatesIgnoredAsync() && await Package.GetIgnoredUpdatesVersionAsync() != "*")
+            {
                 await Package.RemoveFromIgnoredUpdatesAsync();
+            }
 
-            MainApp.Instance.MainWindow.NavigationPage.UpdatesPage.RemoveCorrespondingPackages(Package);
+            PEInterface.UpgradablePackagesLoader.Remove(Package);
 
             if (!Settings.Get("DisableSuccessNotifications") && !Settings.Get("DisableNotifications"))
+            {
                 try
                 {
                     new ToastContentBuilder()
@@ -304,9 +298,12 @@ namespace UniGetUI.PackageEngine.Operations
                     Logger.Warn("Failed to show toast notification");
                     Logger.Warn(ex);
                 }
+            }
 
             if (Package.Version == "Unknown")
+            {
                 await Package.AddToIgnoredUpdatesAsync(Package.NewVersion);
+            }
 
             return AfterFinshAction.TimeoutClose;
         }
@@ -323,20 +320,15 @@ namespace UniGetUI.PackageEngine.Operations
 
         public UninstallPackageOperation(Package package, InstallationOptions options, bool IgnoreParallelInstalls = false) : base(package, options, IgnoreParallelInstalls) { }
         public UninstallPackageOperation(Package package, bool IgnoreParallelInstalls = false) : base(package, IgnoreParallelInstalls) { }
-        protected override Process BuildProcessInstance(ProcessStartInfo startInfo)
+        protected override async Task<Process> BuildProcessInstance(ProcessStartInfo startInfo)
         {
             if (Options.RunAsAdministrator || Settings.Get("AlwaysElevate" + Package.Manager.Name))
             {
                 if (Settings.Get("DoCacheAdminRights") || Settings.Get("DoCacheAdminRightsForBatches"))
                 {
-                    Logger.Info("Caching admin rights for process id " + Process.GetCurrentProcess().Id);
-                    Process p = new();
-                    p.StartInfo.FileName = MainApp.Instance.GSudoPath;
-                    p.StartInfo.Arguments = "cache on --pid " + Process.GetCurrentProcess().Id + " -d 1";
-                    p.Start();
-                    p.WaitForExit();
+                    await CoreTools.CacheUACForCurrentProcess();
                 }
-                startInfo.FileName = MainApp.Instance.GSudoPath;
+                startInfo.FileName = CoreData.GSudoPath;
                 startInfo.Arguments = $"\"{Package.Manager.Status.ExecutablePath}\" " + Package.Manager.Properties.ExecutableCallArgs + " " + string.Join(" ", Package.Manager.GetUninstallParameters(Package, Options));
             }
             else
@@ -372,6 +364,7 @@ namespace UniGetUI.PackageEngine.Operations
             Package.SetTag(PackageTag.Failed);
 
             if (!Settings.Get("DisableErrorNotifications") && !Settings.Get("DisableNotifications"))
+            {
                 try
                 {
                     new ToastContentBuilder()
@@ -386,6 +379,7 @@ namespace UniGetUI.PackageEngine.Operations
                     Logger.Warn("Failed to show toast notification");
                     Logger.Warn(ex);
                 }
+            }
 
             ContentDialogResult result = await MainApp.Instance.MainWindow.NavigationPage.ShowOperationFailedDialog(
                 ProcessOutput,
@@ -394,9 +388,13 @@ namespace UniGetUI.PackageEngine.Operations
             );
 
             if (result == ContentDialogResult.Primary)
+            {
                 return AfterFinshAction.Retry;
+            }
             else
+            {
                 return AfterFinshAction.ManualClose;
+            }
         }
 
         protected override async Task<AfterFinshAction> HandleSuccess()
@@ -404,10 +402,11 @@ namespace UniGetUI.PackageEngine.Operations
             LineInfoText = CoreTools.Translate("{package} was uninstalled successfully", new Dictionary<string, object?>{ { "package", Package.Name } });
 
             Package.GetAvailablePackage()?.SetTag(PackageTag.Default);
-            MainApp.Instance.MainWindow.NavigationPage.UpdatesPage.RemoveCorrespondingPackages(Package);
-            MainApp.Instance.MainWindow.NavigationPage.InstalledPage.RemoveCorrespondingPackages(Package);
+            PEInterface.UpgradablePackagesLoader.Remove(Package);
+            PEInterface.InstalledPackagesLoader.Remove(Package);
 
             if (!Settings.Get("DisableSuccessNotifications") && !Settings.Get("DisableNotifications"))
+            {
                 try
                 {
                     new ToastContentBuilder()
@@ -422,6 +421,8 @@ namespace UniGetUI.PackageEngine.Operations
                     Logger.Warn("Failed to show toast notification");
                     Logger.Warn(ex);
                 }
+            }
+
             await Task.Delay(0);
             return AfterFinshAction.TimeoutClose;
         }

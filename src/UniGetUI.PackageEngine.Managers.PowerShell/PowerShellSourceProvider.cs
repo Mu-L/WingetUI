@@ -15,13 +15,16 @@ namespace UniGetUI.PackageEngine.Managers.PowerShellManager
         public override string[] GetAddSourceParameters(ManagerSource source)
         {
             if (source.Url.ToString() == "https://www.powershellgallery.com/api/v2")
-                return new string[] { "Register-PSRepository", "-Default" };
-            return new string[] { "Register-PSRepository", "-Name", source.Name, "-SourceLocation", source.Url.ToString() };
+            {
+                return [ "Register-PSRepository", "-Default" ];
+            }
+
+            return [ "Register-PSRepository", "-Name", source.Name, "-SourceLocation", source.Url.ToString() ];
         }
 
         public override string[] GetRemoveSourceParameters(ManagerSource source)
         {
-            return new string[] { "Unregister-PSRepository", "-Name", source.Name };
+            return [ "Unregister-PSRepository", "-Name", source.Name ];
         }
 
         public override OperationVeredict GetAddSourceOperationVeredict(ManagerSource source, int ReturnCode, string[] Output)
@@ -38,8 +41,8 @@ namespace UniGetUI.PackageEngine.Managers.PowerShellManager
         {
             List<ManagerSource> sources = new();
 
-            Process process = new();
-            ProcessStartInfo startInfo = new()
+            Process p = new();
+            p.StartInfo = new()
             {
                 FileName = Manager.Status.ExecutablePath,
                 Arguments = Manager.Properties.ExecutableCallArgs + " Get-PSRepository",
@@ -51,30 +54,36 @@ namespace UniGetUI.PackageEngine.Managers.PowerShellManager
                 StandardOutputEncoding = System.Text.Encoding.UTF8
             };
 
-            process.StartInfo = startInfo;
-            process.Start();
+            ManagerClasses.Classes.ProcessTaskLogger logger = Manager.TaskLogger.CreateNew(LoggableTaskType.ListSources, p);
+
+            p.Start();
 
             bool dashesPassed = false;
             string? line;
-            string output = "";
-            while ((line = await process.StandardOutput.ReadLineAsync()) != null)
+            while ((line = await p.StandardOutput.ReadLineAsync()) != null)
             {
-                output += line + "\n";
+                logger.AddToStdOut(line);
                 try
                 {
                     if (string.IsNullOrEmpty(line))
+                    {
                         continue;
+                    }
 
                     if (!dashesPassed)
                     {
                         if (line.Contains("---"))
+                        {
                             dashesPassed = true;
+                        }
                     }
                     else
                     {
                         string[] parts = Regex.Replace(line.Trim(), " {2,}", " ").Split(' ');
                         if (parts.Length >= 3)
+                        {
                             sources.Add(new ManagerSource(Manager, parts[0].Trim(), new Uri(parts[2].Trim())));
+                        }
                     }
                 }
                 catch (Exception e)
@@ -82,9 +91,10 @@ namespace UniGetUI.PackageEngine.Managers.PowerShellManager
                     Logger.Warn(e);
                 }
             }
-            output += await process.StandardError.ReadToEndAsync();
-            Manager.LogOperation(process, output);
-            await process.WaitForExitAsync();
+            logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+            await p.WaitForExitAsync();
+            logger.Close(p.ExitCode);
+
             return sources.ToArray();
         }
     }

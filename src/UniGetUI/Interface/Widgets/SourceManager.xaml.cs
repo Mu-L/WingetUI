@@ -1,17 +1,11 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using UniGetUI.Core;
-using UniGetUI.PackageEngine.Classes;
 using UniGetUI.Core.Logging;
-using UniGetUI.PackageEngine.Operations;
-using UniGetUI.PackageEngine.ManagerClasses.Manager;
-using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
 using UniGetUI.Core.Tools;
-using System.Diagnostics.CodeAnalysis;
-using System.ComponentModel.Design;
+using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
+using UniGetUI.PackageEngine.ManagerClasses.Manager;
+using UniGetUI.PackageEngine.Operations;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -47,7 +41,9 @@ namespace UniGetUI.Interface.Widgets
             InitializeComponent();
 
             if (!Manager.Capabilities.SupportsCustomSources)
+            {
                 throw new Exception($"Attempted to create a SourceManager class from Manager {Manager.Name}, which does not support custom sources");
+            }
 
             Header.Text = CoreTools.Translate("Manage {0} sources", Manager.Properties.Name);
             AddSourceButton.Content = CoreTools.Translate("Add source");
@@ -99,7 +95,7 @@ namespace UniGetUI.Interface.Widgets
                         }
                         else
                         {
-                            var sourceName = SourcesCombo.SelectedValue.ToString();
+                            string? sourceName = SourcesCombo.SelectedValue.ToString();
                             if (sourceName != null)
                             {
                                 SourceUrlTextBox.IsEnabled = SourceNameTextBox.IsEnabled = false;
@@ -124,9 +120,14 @@ namespace UniGetUI.Interface.Widgets
                     {
                         AddSourceOperation op;
                         if (CoreTools.Translate("Other") != SourcesCombo.SelectedValue.ToString())
+                        {
                             op = new AddSourceOperation(NameSourceRef[SourcesCombo.SelectedValue.ToString() ?? ""]);
+                        }
                         else
+                        {
                             op = new AddSourceOperation(new ManagerSource(this.Manager, SourceNameTextBox.Text, new Uri(SourceUrlTextBox.Text)));
+                        }
+
                         MainApp.Instance.AddOperationToList(op);
                         op.OperationSucceeded += (sender, e) => { LoadSources(); };
 
@@ -154,7 +155,9 @@ namespace UniGetUI.Interface.Widgets
         public async void LoadSources()
         {
             if (!Manager.IsReady())
+            {
                 return;
+            }
 
             LoadingBar.Visibility = Visibility.Visible;
             Sources.Clear();
@@ -163,7 +166,9 @@ namespace UniGetUI.Interface.Widgets
                 Sources.Add(new SourceItem(this, Source));
             }
             if (Sources.Count > 0)
+            {
                 _datagrid.SelectedIndex = 0;
+            }
 
             LoadingBar.Visibility = Visibility.Collapsed;
         }

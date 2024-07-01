@@ -1,21 +1,12 @@
 ﻿using CommunityToolkit.WinUI.Notifications;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Documents;
-using Microsoft.UI.Xaml.Media;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading.Tasks;
-using UniGetUI.Core;
 using UniGetUI.Core.Data;
-using UniGetUI.Interface.Widgets;
-using UniGetUI.PackageEngine.Classes;
 using UniGetUI.Core.Logging;
 using UniGetUI.Core.SettingsEngine;
-using UniGetUI.PackageEngine.Enums;
-using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
 using UniGetUI.Core.Tools;
+using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
+using UniGetUI.PackageEngine.Enums;
 
 namespace UniGetUI.PackageEngine.Operations
 {
@@ -35,20 +26,15 @@ namespace UniGetUI.PackageEngine.Operations
 
         public event EventHandler<EventArgs>? OperationSucceeded;
         public AddSourceOperation(ManagerSource source) : base(source) { }
-        protected override Process BuildProcessInstance(ProcessStartInfo startInfo)
+        protected override async Task<Process> BuildProcessInstance(ProcessStartInfo startInfo)
         {
             if (Source.Manager.Capabilities.Sources.MustBeInstalledAsAdmin)
             {
                 if (Settings.Get("DoCacheAdminRights") || Settings.Get("DoCacheAdminRightsForBatches"))
                 {
-                    Logger.Info("Caching admin rights for process id " + Process.GetCurrentProcess().Id);
-                    Process p = new();
-                    p.StartInfo.FileName = MainApp.Instance.GSudoPath;
-                    p.StartInfo.Arguments = "cache on --pid " + Process.GetCurrentProcess().Id + " -d 1";
-                    p.Start();
-                    p.WaitForExit();
+                    await CoreTools.CacheUACForCurrentProcess();
                 }
-                startInfo.FileName = MainApp.Instance.GSudoPath;
+                startInfo.FileName = CoreData.GSudoPath;
                 startInfo.Arguments = $"\"{Source.Manager.Status.ExecutablePath}\" " + Source.Manager.Properties.ExecutableCallArgs + " " + string.Join(" ", Source.Manager.GetAddSourceParameters(Source));
             }
             else
@@ -103,9 +89,13 @@ namespace UniGetUI.PackageEngine.Operations
             );
             
             if (result == ContentDialogResult.Primary)
+            {
                 return AfterFinshAction.Retry;
+            }
             else
+            {
                 return AfterFinshAction.ManualClose;
+            }
         }
 
         protected override async Task<AfterFinshAction> HandleSuccess()
@@ -113,8 +103,9 @@ namespace UniGetUI.PackageEngine.Operations
             OperationSucceeded?.Invoke(this, new EventArgs());
             LineInfoText = CoreTools.Translate("The source {source} was added to {manager} successfully", new Dictionary<string, object?>{ { "source", Source.Name }, { "manager", Source.Manager.Name } });
             if (!Settings.Get("DisableSuccessNotifications") && !Settings.Get("DisableNotifications"))
-                
-                try{
+            {
+                try
+                {
                     new ToastContentBuilder()
                     .AddArgument("action", "OpenUniGetUI")
                     .AddArgument("notificationId", CoreData.VolatileNotificationIdCounter)
@@ -127,6 +118,8 @@ namespace UniGetUI.PackageEngine.Operations
                     Logger.Warn("Failed to show toast notification");
                     Logger.Warn(ex);
                 }
+            }
+
             await Task.Delay(0);
             return AfterFinshAction.TimeoutClose;
         }
@@ -143,20 +136,15 @@ namespace UniGetUI.PackageEngine.Operations
 
         public event EventHandler<EventArgs>? OperationSucceeded;
         public RemoveSourceOperation(ManagerSource source) : base(source) { }
-        protected override Process BuildProcessInstance(ProcessStartInfo startInfo)
+        protected override async Task<Process> BuildProcessInstance(ProcessStartInfo startInfo)
         {
             if (Source.Manager.Capabilities.Sources.MustBeInstalledAsAdmin)
             {
                 if (Settings.Get("DoCacheAdminRights") || Settings.Get("DoCacheAdminRightsForBatches"))
                 {
-                    Logger.Info("Caching admin rights for process id " + Process.GetCurrentProcess().Id);
-                    Process p = new();
-                    p.StartInfo.FileName = MainApp.Instance.GSudoPath;
-                    p.StartInfo.Arguments = "cache on --pid " + Process.GetCurrentProcess().Id + " -d 1";
-                    p.Start();
-                    p.WaitForExit();
+                    await CoreTools.CacheUACForCurrentProcess();
                 }
-                startInfo.FileName = MainApp.Instance.GSudoPath;
+                startInfo.FileName = CoreData.GSudoPath;
                 startInfo.Arguments = $"\"{Source.Manager.Status.ExecutablePath}\" " + Source.Manager.Properties.ExecutableCallArgs + " " + string.Join(" ", Source.Manager.GetRemoveSourceParameters(Source));
 
             }
@@ -203,9 +191,13 @@ namespace UniGetUI.PackageEngine.Operations
             );
 
             if (result == ContentDialogResult.Primary)
+            {
                 return AfterFinshAction.Retry;
+            }
             else
+            {
                 return AfterFinshAction.ManualClose;
+            }
         }
 
         protected override async Task<AfterFinshAction> HandleSuccess()
@@ -213,6 +205,7 @@ namespace UniGetUI.PackageEngine.Operations
             OperationSucceeded?.Invoke(this, new EventArgs());
             LineInfoText = CoreTools.Translate("The source {source} was removed from {manager} successfully", new Dictionary<string, object?>{ { "source", Source.Name }, { "manager", Source.Manager.Name } });
             if (!Settings.Get("DisableSuccessNotifications") && !Settings.Get("DisableNotifications"))
+            {
                 try { 
                 new ToastContentBuilder()
                     .AddArgument("action", "OpenUniGetUI")
@@ -226,6 +219,8 @@ namespace UniGetUI.PackageEngine.Operations
                     Logger.Warn("Failed to show toast notification");
                     Logger.Warn(ex);
                 }
+            }
+
             await Task.Delay(0);
             return AfterFinshAction.TimeoutClose;
         }

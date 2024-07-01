@@ -3,11 +3,10 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
-using System;
-using UniGetUI.Core;
-using Windows.UI.Text;
+using UniGetUI.Core.Data;
 using UniGetUI.Core.Logging;
 using UniGetUI.Core.Tools;
+using Windows.UI.Text;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -22,14 +21,13 @@ namespace UniGetUI.Interface.Widgets
             set => SetValue(UrlProperty, value);
         }
 
-        DependencyProperty UrlProperty;
+        readonly DependencyProperty UrlProperty;
 
 
-        private static HttpClient NetClient = new();
-
-
+        private static readonly HttpClient NetClient = new(CoreData.GenericHttpClientParameters);
         public Announcer()
         {
+            NetClient.DefaultRequestHeaders.UserAgent.ParseAdd(CoreData.UserAgentString);
             UrlProperty = DependencyProperty.Register(
             nameof(UrlProperty),
             typeof(Uri),
@@ -41,7 +39,7 @@ namespace UniGetUI.Interface.Widgets
             BringIntoViewRequested += (s, e) => { LoadAnnouncements(); };
 
             int i = 0;
-            PointerPressed += (s, e) => { if (i++ % 3 != 0) LoadAnnouncements(); };
+            PointerPressed += (s, e) => { if (i++ % 3 != 0) { LoadAnnouncements(); } };
 
             SetText(CoreTools.Translate("Fetching latest announcements, please wait..."));
             _textblock.TextWrapping = TextWrapping.Wrap;
@@ -53,7 +51,9 @@ namespace UniGetUI.Interface.Widgets
             {
                 Uri announcement_url = Url;
                 if (retry)
+                {
                     announcement_url = new Uri(Url.ToString().Replace("https://", "http://"));
+                }
 
                 HttpResponseMessage response = await NetClient.GetAsync(announcement_url);
                 if (response.IsSuccessStatusCode)
@@ -72,7 +72,9 @@ namespace UniGetUI.Interface.Widgets
                     SetText(CoreTools.Translate("Could not load announcements - HTTP status code is $CODE").Replace("$CODE", response.StatusCode.ToString()));
                     SetImage(new Uri("ms-appx:///Assets/Images/warn.png"));
                     if (!retry)
+                    {
                         LoadAnnouncements(true);
+                    }
                 }
             }
             catch (Exception ex)

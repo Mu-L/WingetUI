@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UniGetUI.Core.Logging;
+﻿using System.Diagnostics;
 using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
 using UniGetUI.PackageEngine.Classes.Manager.Providers;
 using UniGetUI.PackageEngine.Enums;
@@ -40,8 +34,8 @@ namespace UniGetUI.PackageEngine.Managers.ChocolateyManager
         {
             List<ManagerSource> sources = new();
 
-            Process process = new();
-            ProcessStartInfo startInfo = new()
+            Process p = new();
+            p.StartInfo = new()
             {
                 FileName = Manager.Status.ExecutablePath,
                 Arguments = Manager.Properties.ExecutableCallArgs + " source list",
@@ -53,39 +47,43 @@ namespace UniGetUI.PackageEngine.Managers.ChocolateyManager
                 StandardOutputEncoding = System.Text.Encoding.UTF8
             };
 
-            process.StartInfo = startInfo;
-            process.Start();
+            ManagerClasses.Classes.ProcessTaskLogger logger = Manager.TaskLogger.CreateNew(LoggableTaskType.ListSources, p);
+            p.Start();
 
-
-            string output = "";
             string? line;
-            while ((line = await process.StandardOutput.ReadLineAsync()) != null)
+            while ((line = await p.StandardOutput.ReadLineAsync()) != null)
             {
-                output += line + "\n";
+                logger.AddToStdOut(line);
                 try
                 {
                     if (string.IsNullOrEmpty(line))
+                    {
                         continue;
+                    }
 
                     if (line.Contains(" - ") && line.Contains(" | "))
                     {
                         string[] parts = line.Trim().Split('|')[0].Trim().Split(" - ");
                         if (parts[1].Trim() == "https://community.chocolatey.org/api/v2/")
+                        {
                             sources.Add(new ManagerSource(Manager, "community", new Uri("https://community.chocolatey.org/api/v2/")));
+                        }
                         else
+                        {
                             sources.Add(new ManagerSource(Manager, parts[0].Trim(), new Uri(parts[1].Trim())));
+                        }
                     }
                 }
                 catch (Exception e)
                 {
-                    Logger.Error(e);
+                    logger.AddToStdErr(e.ToString());
                 }
             }
 
-            output += await process.StandardError.ReadToEndAsync();
-            Manager.LogOperation(process, output);
-
-            await process.WaitForExitAsync();
+            logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+            await p.WaitForExitAsync();
+            logger.Close(p.ExitCode);
+            
             return sources.ToArray();
         }
     }

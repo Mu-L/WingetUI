@@ -1,15 +1,24 @@
-﻿using System.Linq.Expressions;
-using System.Reflection.Metadata.Ecma335;
+﻿using System.Diagnostics;
+using System.Net;
 using UniGetUI.Core.Logging;
-using Windows.Storage.Search;
-using Windows.System.Diagnostics;
 
 namespace UniGetUI.Core.Data
 {
     public static class CoreData
     {
-        public static string VersionName =  "3.1.0-alpha0"; // Do not modify this line, use file scripts/apply_versions.py
-        public static double VersionNumber =  3.099; // Do not modify this line, use file scripts/apply_versions.py
+        public const string VersionName =  "3.1.0-beta1"; // Do not modify this line, use file scripts/apply_versions.py
+        public const double VersionNumber =  3.0993; // Do not modify this line, use file scripts/apply_versions.py
+
+        public const string UserAgentString = $"UniGetUI/{VersionName} (https://marticliment.com/unigetui/; contact@marticliment.com)";
+        public static HttpClientHandler GenericHttpClientParameters { 
+            get {
+                return new()
+                {
+                    AutomaticDecompression = DecompressionMethods.All,
+                    AllowAutoRedirect = true,
+                };
+            } 
+        }
 
         /// <summary>
         /// The directory where all the user data is stored. The directory is automatically created if it does not exist.
@@ -31,8 +40,12 @@ namespace UniGetUI.Core.Data
         {
             get
             {
-                var path = Path.Join(UniGetUIDataDirectory, "InstallationOptions");
-                if(!Directory.Exists(path)) Directory.CreateDirectory(path);
+                string path = Path.Join(UniGetUIDataDirectory, "InstallationOptions");
+                if(!Directory.Exists(path))
+                {
+                    Directory.CreateDirectory(path);
+                }
+
                 return path;
             }
         }
@@ -99,7 +112,10 @@ namespace UniGetUI.Core.Data
                 // Calling the UniGetUIDataDirectory will create the directory if it does not exist
                 string file_path = Path.Join(UniGetUIDataDirectory, "IgnoredPackageUpdates.json");
                 if (!File.Exists(file_path))
+                {
                     File.WriteAllText(file_path, "{}");
+                }
+
                 return file_path;
             }
         }
@@ -134,9 +150,14 @@ namespace UniGetUI.Core.Data
             get {
                 string? dir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
                 if (dir != null)
+                {
                     return dir;
+                }
                 else
+                {
                     Logger.Error("System.Reflection.Assembly.GetExecutingAssembly().Location returned an empty path");
+                }
+
                 return Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "UiGetUI");
             }
         }
@@ -147,14 +168,21 @@ namespace UniGetUI.Core.Data
         public static string UniGetUIExecutableFile
         {
             get {
-                string? filename = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                string? filename = Process.GetCurrentProcess().MainModule?.FileName;
                 if (filename != null)
-                    return filename;
+                {
+                    return filename.Replace(".dll", ".exe");
+                }
                 else
+                {
                     Logger.Error("System.Reflection.Assembly.GetExecutingAssembly().Location returned an empty path");
-                return Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "UiGetUI", "UniGetUI.exe");
+                }
+
+                return Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "UniGetUI", "UniGetUI.exe");
             }
         }
+
+        public static string GSudoPath = "";
 
 
         /// <summary>
@@ -169,7 +197,9 @@ namespace UniGetUI.Core.Data
         private static string GetNewDataDirectoryOrMoveOld(string old_path, string new_path)
         {
             if (Directory.Exists(new_path) && !Directory.Exists(old_path))
+            {
                 return new_path;
+            }
             else if (Directory.Exists(new_path) && Directory.Exists(old_path))
             {
                 try
@@ -183,7 +213,9 @@ namespace UniGetUI.Core.Data
                             Directory.CreateDirectory(new_subdir);
                         }
                         else
+                        {
                             Logger.Debug("Directory " + new_subdir + " already exists");
+                        }
                     }
 
                     foreach (string old_file in Directory.GetFiles(old_path, "*", SearchOption.AllDirectories))

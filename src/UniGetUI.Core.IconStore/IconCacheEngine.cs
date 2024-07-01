@@ -1,18 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Reflection.PortableExecutable;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Security.Cryptography;
 using UniGetUI.Core.Data;
 using UniGetUI.Core.Logging;
 using UniGetUI.Core.Tools;
-using Windows.Foundation.Collections;
 
 namespace UniGetUI.Core.IconEngine
 {
@@ -72,10 +61,14 @@ namespace UniGetUI.Core.IconEngine
         /// <returns>A path to a local icon file</returns>
         public static async Task<string> DownloadIconOrCache(CacheableIcon? _icon, string ManagerName, string PackageId)
         {
-            if (_icon is null) return "";
+            if (_icon is null)
+            {
+                return "";
+            }
+
             CacheableIcon icon = _icon ?? new CacheableIcon();
 
-            var extension = icon.Url.AbsolutePath.Substring(icon.Url.AbsolutePath.LastIndexOf('.'))[1..];
+            string extension = icon.Url.AbsolutePath[icon.Url.AbsolutePath.LastIndexOf('.')..][1..];
             
             if (extension.Length > 6)
             {
@@ -83,16 +76,19 @@ namespace UniGetUI.Core.IconEngine
                 extension = "png";
             }
 
-            var FilePath = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName, $"{PackageId}.{extension}");
-            var VersionPath = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName, $"{PackageId}.{extension}.version");
-            var UriPath = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName, $"{PackageId}.{extension}.uri");
-            var FileDirectory = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName);
+            string FilePath = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName, $"{PackageId}.{extension}");
+            string VersionPath = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName, $"{PackageId}.{extension}.version");
+            string UriPath = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName, $"{PackageId}.{extension}.uri");
+            string FileDirectory = Path.Join(CoreData.UniGetUICacheDirectory_Icons, ManagerName);
             if (!Directory.Exists(FileDirectory))
+            {
                 Directory.CreateDirectory(FileDirectory);
+            }
 
-            var FileExists = File.Exists(FilePath);
+            bool FileExists = File.Exists(FilePath);
             bool IsFileValid = false;
             if(FileExists)
+            {
                 switch (icon.VerificationMethod)
                 {
                     case CachedIconVerificationMethod.FileSize:
@@ -123,7 +119,7 @@ namespace UniGetUI.Core.IconEngine
                         {
                             if(File.Exists(VersionPath))
                             {
-                                var localVersion = File.ReadAllText(VersionPath);
+                                string localVersion = File.ReadAllText(VersionPath);
                                 IsFileValid = (localVersion == icon.Version);
                             }
                         }
@@ -138,7 +134,7 @@ namespace UniGetUI.Core.IconEngine
                         {
                             if (File.Exists(UriPath))
                             {
-                                var localVersion = File.ReadAllText(UriPath);
+                                string localVersion = File.ReadAllText(UriPath);
                                 IsFileValid = (localVersion == icon.Url.ToString());
                             }
                         }
@@ -153,24 +149,37 @@ namespace UniGetUI.Core.IconEngine
                         IsFileValid = true;
                         break;
                 }
+            }
 
             Logger.Debug($"Icon for package {PackageId} on manager {ManagerName} with Uri={icon.Url} has been determined to be {(IsFileValid? "VALID": "INVALID")} through verification method {icon.VerificationMethod}");
 
             if(!IsFileValid)
-                using (var client = new HttpClient())
+            {
+                using HttpClient client = new(CoreData.GenericHttpClientParameters);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(CoreData.UserAgentString);
+                if (File.Exists(FilePath))
                 {
-                    if(File.Exists(FilePath)) File.Delete(FilePath);
-                    HttpResponseMessage response = await client.GetAsync(icon.Url);
-                    response.EnsureSuccessStatusCode();
-                    using (var stream = await response.Content.ReadAsStreamAsync())
-                        using(FileStream fileStream = File.Create(FilePath))
-                            await stream.CopyToAsync(fileStream);
-                    if (icon.VerificationMethod == CachedIconVerificationMethod.PackageVersion)
-                        await File.WriteAllTextAsync(VersionPath, icon.Version);
-
-                    if (icon.VerificationMethod == CachedIconVerificationMethod.UriSource)
-                        await File.WriteAllTextAsync(UriPath, icon.Url.ToString());
+                    File.Delete(FilePath);
                 }
+
+                HttpResponseMessage response = await client.GetAsync(icon.Url);
+                response.EnsureSuccessStatusCode();
+                using (Stream stream = await response.Content.ReadAsStreamAsync())
+                using (FileStream fileStream = File.Create(FilePath))
+                {
+                    await stream.CopyToAsync(fileStream);
+                }
+
+                if (icon.VerificationMethod == CachedIconVerificationMethod.PackageVersion)
+                {
+                    await File.WriteAllTextAsync(VersionPath, icon.Version);
+                }
+
+                if (icon.VerificationMethod == CachedIconVerificationMethod.UriSource)
+                {
+                    await File.WriteAllTextAsync(UriPath, icon.Url.ToString());
+                }
+            }
 
             Logger.Info($"Icon for package {PackageId} stored on {FilePath}");
             return FilePath;
@@ -179,9 +188,9 @@ namespace UniGetUI.Core.IconEngine
 
         private static async Task<byte[]> CalculateFileHashAsync(string filePath)
         {
-            using (var stream = File.OpenRead(filePath))
-                using (var sha256 = SHA256.Create())
-                    return await sha256.ComputeHashAsync(stream);
+            using FileStream stream = File.OpenRead(filePath);
+            using SHA256 sha256 = SHA256.Create();
+            return await sha256.ComputeHashAsync(stream);
         }
     }
 }

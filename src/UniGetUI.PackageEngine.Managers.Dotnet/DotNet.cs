@@ -1,22 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using UniGetUI.Core;
-using UniGetUI.PackageEngine.Classes;
-using UniGetUI.PackageEngine.Enums;
-using UniGetUI.Core.Logging;
 using UniGetUI.Core.Tools;
-using UniGetUI.PackageEngine.Managers;
-using UniGetUI.PackageEngine.ManagerClasses.Manager;
+using UniGetUI.PackageEngine.Classes.Manager.Classes;
 using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
-using UniGetUI.PackageEngine.PackageClasses;
+using UniGetUI.PackageEngine.Enums;
+using UniGetUI.PackageEngine.ManagerClasses.Manager;
 using UniGetUI.PackageEngine.Managers.PowerShellManager;
+using UniGetUI.PackageEngine.PackageClasses;
 
 namespace UniGetUI.PackageEngine.Managers.DotNetManager
 {
@@ -28,6 +19,14 @@ namespace UniGetUI.PackageEngine.Managers.DotNetManager
 
         public DotNet() : base()
         {
+            Dependencies = [
+                new ManagerDependency(
+                    ".NET Tools Outdated",
+                    Path.Join(Environment.SystemDirectory, "windowspowershell\\v1.0\\powershell.exe"),
+                    "-ExecutionPolicy Bypass -NoLogo -NoProfile -Command \"& {dotnet tool install --global dotnet-tools-outdated  --add-source https://api.nuget.org/v3/index.json; if($error.count -ne 0){pause}}\"",
+                    async () => (await CoreTools.Which("dotnet-tools-outdated.exe")).Item1)
+            ];
+
             Capabilities = new ManagerCapabilities()
             {
                 CanRunAsAdmin = true,
@@ -56,90 +55,47 @@ namespace UniGetUI.PackageEngine.Managers.DotNetManager
             };
         }
 
-        protected override async Task<UpgradablePackage[]> GetAvailableUpdates_UnSafe()
+        protected override async Task<Package[]> GetAvailableUpdates_UnSafe()
         {
-            var which_res = await CoreTools.Which("dotnet-tools-outdated.exe");
+            Tuple<bool, string> which_res = await CoreTools.Which("dotnet-tools-outdated.exe");
             string path = which_res.Item2;
             if (!which_res.Item1)
             {
-                Process proc = new()
+                Process proc = new();
+                proc.StartInfo = new ProcessStartInfo()
                 {
-                    StartInfo = new ProcessStartInfo()
-                    {
-                        FileName = path,
-                        Arguments = Properties.ExecutableCallArgs + " install --global dotnet-tools-outdated",
-                        UseShellExecute = true,
-                        CreateNoWindow = true,
-                    }
+                    FileName = Status.ExecutablePath,
+                    Arguments = Properties.ExecutableCallArgs + " install --global dotnet-tools-outdated",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
                 };
+
+                ManagerClasses.Classes.ProcessTaskLogger aux_logger = TaskLogger.CreateNew(LoggableTaskType.InstallManagerDependency, proc);
                 proc.Start();
+
+                aux_logger.AddToStdOut(await proc.StandardOutput.ReadToEndAsync());
+                aux_logger.AddToStdErr(await proc.StandardError.ReadToEndAsync());
                 await proc.WaitForExitAsync();
+                aux_logger.Close(proc.ExitCode);
+                
                 path = "dotnet-tools-outdated.exe";
             }
 
-            Process p = new()
+            Process p = new();
+            p.StartInfo = new ProcessStartInfo()
             {
-                StartInfo = new ProcessStartInfo()
-                {
-                    FileName = path,
-                    Arguments = "",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8
-                }
+                FileName = path,
+                Arguments = "",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8
             };
 
-            p.Start();
-
-            string? line;
-            bool DashesPassed = false;
-            List<UpgradablePackage> Packages = new();
-            string output = "";
-            while ((line = await p.StandardOutput.ReadLineAsync()) != null)
-            {
-                output += line + "\n";
-                if (!DashesPassed)
-                {
-                    if (line.Contains("----"))
-                        DashesPassed = true;
-                }
-                else
-                {
-                    string[] elements = Regex.Replace(line, " {2,}", " ").Split(' ');
-                    if (elements.Length < 3)
-                        continue;
-
-                    for (int i = 0; i < elements.Length; i++) elements[i] = elements[i].Trim();
-                    if (FALSE_PACKAGE_IDS.Contains(elements[0]) || FALSE_PACKAGE_VERSIONS.Contains(elements[1]))
-                        continue;
-
-                    Packages.Add(new UpgradablePackage(CoreTools.FormatAsName(elements[0]), elements[0], elements[1], elements[2], DefaultSource, this, PackageScope.Global));
-                }
-            }
-            output += await p.StandardError.ReadToEndAsync();
-            LogOperation(p, output);
-
-            return Packages.ToArray();
-        }
-
-        protected override async Task<Package[]> GetInstalledPackages_UnSafe()
-        {
-            Process p = new()
-            {
-                StartInfo = new ProcessStartInfo()
-                {
-                    FileName = Status.ExecutablePath,
-                    Arguments = Properties.ExecutableCallArgs + " list",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8
-                }
-            };
-
+            ManagerClasses.Classes.ProcessTaskLogger logger = TaskLogger.CreateNew(LoggableTaskType.ListUpdates, p);
             p.Start();
 
             string? line;
@@ -147,67 +103,99 @@ namespace UniGetUI.PackageEngine.Managers.DotNetManager
             List<Package> Packages = new();
             while ((line = await p.StandardOutput.ReadLineAsync()) != null)
             {
+                logger.AddToStdOut(line);
                 if (!DashesPassed)
                 {
                     if (line.Contains("----"))
+                    {
                         DashesPassed = true;
+                    }
                 }
                 else
                 {
                     string[] elements = Regex.Replace(line, " {2,}", " ").Split(' ');
-                    if (elements.Length < 2)
+                    if (elements.Length < 3)
+                    {
                         continue;
+                    }
 
-                    for (int i = 0; i < elements.Length; i++) elements[i] = elements[i].Trim();
+                    for (int i = 0; i < elements.Length; i++)
+                    {
+                        elements[i] = elements[i].Trim();
+                    }
+
                     if (FALSE_PACKAGE_IDS.Contains(elements[0]) || FALSE_PACKAGE_VERSIONS.Contains(elements[1]))
+                    {
                         continue;
+                    }
 
-                    Packages.Add(new Package(CoreTools.FormatAsName(elements[0]), elements[0], elements[1], DefaultSource, this, PackageScope.User));
+                    Packages.Add(new Package(CoreTools.FormatAsName(elements[0]), elements[0], elements[1], elements[2], DefaultSource, this, PackageScope.Global));
                 }
             }
+            logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+            await p.WaitForExitAsync();
+            logger.Close(p.ExitCode);
 
-            p = new Process()
+            return Packages.ToArray();
+        }
+
+        protected override async Task<Package[]> GetInstalledPackages_UnSafe()
+        {
+            List<Package> Packages = new();
+            foreach (PackageScope scope in new PackageScope[] { PackageScope.Local, PackageScope.Global})
             {
-                StartInfo = new ProcessStartInfo()
+                Process p = new();
+                p.StartInfo = new ProcessStartInfo()
                 {
                     FileName = Status.ExecutablePath,
-                    Arguments = Properties.ExecutableCallArgs + " list --global",
+                    Arguments = Properties.ExecutableCallArgs + $" list" + (scope == PackageScope.Global? " --global": ""),
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     StandardOutputEncoding = System.Text.Encoding.UTF8
-                }
-            };
+                };
 
-            p.Start();
+                ManagerClasses.Classes.ProcessTaskLogger logger = TaskLogger.CreateNew(LoggableTaskType.ListPackages, p);
+                p.Start();
 
-            DashesPassed = false;
-            string output = "";
-            while ((line = await p.StandardOutput.ReadLineAsync()) != null)
-            {
-                output += line + "\n";
-                if (!DashesPassed)
+                string? line;
+                bool DashesPassed = false;
+                while ((line = await p.StandardOutput.ReadLineAsync()) != null)
                 {
-                    if (line.Contains("----"))
-                        DashesPassed = true;
-                }
-                else
-                {
-                    string[] elements = Regex.Replace(line, " {2,}", " ").Split(' ');
-                    if (elements.Length < 2)
-                        continue;
+                    logger.AddToStdOut(line);
+                    if (!DashesPassed)
+                    {
+                        if (line.Contains("----"))
+                        {
+                            DashesPassed = true;
+                        }
+                    }
+                    else
+                    {
+                        string[] elements = Regex.Replace(line, " {2,}", " ").Split(' ');
+                        if (elements.Length < 2)
+                        {
+                            continue;
+                        }
 
-                    for (int i = 0; i < elements.Length; i++) elements[i] = elements[i].Trim();
-                    if (FALSE_PACKAGE_IDS.Contains(elements[0]) || FALSE_PACKAGE_VERSIONS.Contains(elements[1]))
-                        continue;
+                        for (int i = 0; i < elements.Length; i++)
+                        {
+                            elements[i] = elements[i].Trim();
+                        }
 
-                    Packages.Add(new Package(CoreTools.FormatAsName(elements[0]), elements[0], elements[1], DefaultSource, this, PackageScope.Global));
+                        if (FALSE_PACKAGE_IDS.Contains(elements[0]) || FALSE_PACKAGE_VERSIONS.Contains(elements[1]))
+                        {
+                            continue;
+                        }
+
+                        Packages.Add(new Package(CoreTools.FormatAsName(elements[0]), elements[0], elements[1], DefaultSource, this, scope));
+                    }
                 }
+                logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+                await p.WaitForExitAsync();
+                logger.Close(p.ExitCode);
             }
-            output += await p.StandardError.ReadToEndAsync();
-            LogOperation(p, output);
-
             return Packages.ToArray();
         }
 
@@ -238,13 +226,21 @@ namespace UniGetUI.PackageEngine.Managers.DotNetManager
             parameters[0] = Properties.UpdateVerb;
 
             if (options.Architecture == Architecture.X86)
+            {
                 parameters.AddRange(new string[] { "--arch", "x86" });
+            }
             else if (options.Architecture == Architecture.X64)
+            {
                 parameters.AddRange(new string[] { "--arch", "x64" });
+            }
             else if (options.Architecture == Architecture.Arm)
+            {
                 parameters.AddRange(new string[] { "--arch", "arm32" });
+            }
             else if (options.Architecture == Architecture.Arm64)
+            {
                 parameters.AddRange(new string[] { "--arch", "arm64" });
+            }
 
             return parameters.ToArray();
         }
@@ -254,12 +250,18 @@ namespace UniGetUI.PackageEngine.Managers.DotNetManager
             List<string> parameters = new() { Properties.UninstallVerb, package.Id };
 
             if (options.CustomParameters != null)
+            {
                 parameters.AddRange(options.CustomParameters);
+            }
 
             if (options.CustomInstallLocation != "")
+            {
                 parameters.AddRange(new string[] { "--tool-path", "\"" + options.CustomInstallLocation + "\"" });
+            }
             else if (package.Scope == PackageScope.Global)
+            {
                 parameters.Add("--global");
+            }
 
             return parameters.ToArray();
         }
@@ -268,14 +270,37 @@ namespace UniGetUI.PackageEngine.Managers.DotNetManager
         {
             ManagerStatus status = new();
 
-            var which_res = await CoreTools.Which("dotnet.exe");
+            Tuple<bool, string> which_res = await CoreTools.Which("dotnet.exe");
             status.ExecutablePath = which_res.Item2;
             status.Found = which_res.Item1;
 
             if (!status.Found)
+            {
                 return status;
+            }
 
             Process process = new()
+            {
+                StartInfo = new ProcessStartInfo()
+                {
+                    FileName = status.ExecutablePath,
+                    Arguments = "tool -h",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8
+                }
+            };
+            process.Start();
+            await process.WaitForExitAsync();
+            if(process.ExitCode != 0)
+            {
+                status.Found = false;
+                return status;
+            }
+
+            process = new()
             {
                 StartInfo = new ProcessStartInfo()
                 {
@@ -288,6 +313,7 @@ namespace UniGetUI.PackageEngine.Managers.DotNetManager
                     StandardOutputEncoding = System.Text.Encoding.UTF8
                 }
             };
+
             process.Start();
             status.Version = (await process.StandardOutput.ReadToEndAsync()).Trim();
 

@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Xml.Linq;
-using UniGetUI.Core.Logging;
-using UniGetUI.PackageEngine.Classes.Manager.Interfaces;
+﻿using UniGetUI.PackageEngine.Classes.Manager.Interfaces;
 using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
 using UniGetUI.PackageEngine.Enums;
 using UniGetUI.PackageEngine.ManagerClasses.Manager;
@@ -39,7 +32,9 @@ namespace UniGetUI.PackageEngine.Classes.Manager.Providers
             SourceFactory.Reset();
 
             foreach (ManagerSource source in sources)
+            {
                 SourceFactory.AddSource(source);
+            }
 
             return sources;
         }

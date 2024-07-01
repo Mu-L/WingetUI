@@ -1,6 +1,4 @@
-﻿using Xunit;
-
-namespace UniGetUI.Core.Classes.Tests
+﻿namespace UniGetUI.Core.Classes.Tests
 {
     public class PersonTests
     {
@@ -19,14 +17,22 @@ namespace UniGetUI.Core.Classes.Tests
 
             //Assert
             if (string.IsNullOrEmpty(profilePicture))
+            {
                 Assert.False(actual.HasPicture);
+            }
             else
+            {
                 Assert.True(actual.HasPicture);
+            }
 
             if (string.IsNullOrEmpty(gitHubUrl))
+            {
                 Assert.False(actual.HasGitHubProfile);
+            }
             else
+            {
                 Assert.True(actual.HasGitHubProfile);
+            }
         }
     }
 }

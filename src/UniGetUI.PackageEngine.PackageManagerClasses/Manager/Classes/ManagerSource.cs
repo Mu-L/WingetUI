@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UniGetUI.PackageEngine.ManagerClasses.Manager;
+﻿using UniGetUI.PackageEngine.ManagerClasses.Manager;
 
 namespace UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers
 {
@@ -33,7 +28,9 @@ namespace UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers
             Name = name;
             Url = url;
             if (manager.Capabilities.Sources.KnowsPackageCount)
+            {
                 PackageCount = packageCount;
+            }
 
             UpdateDate = updateDate;
         }
@@ -41,9 +38,13 @@ namespace UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers
         public override string ToString()
         {
             if (Manager.Capabilities.SupportsCustomSources)
+            {
                 return Manager.Name + ": " + Name;
+            }
             else
+            {
                 return Manager.Name;
+            }
         }
 
         /// <summary>

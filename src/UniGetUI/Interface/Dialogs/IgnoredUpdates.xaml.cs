@@ -1,18 +1,12 @@
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json.Nodes;
-using System.Threading.Tasks;
-using UniGetUI.Core;
 using UniGetUI.Core.Data;
-using UniGetUI.PackageEngine.Classes;
 using UniGetUI.Core.Logging;
-using UniGetUI.Interface.Enums;
 using UniGetUI.Core.Tools;
+using UniGetUI.Interface.Enums;
+using UniGetUI.PackageEngine;
 using UniGetUI.PackageEngine.ManagerClasses.Manager;
 using UniGetUI.PackageEngine.PackageClasses;
 
@@ -40,7 +34,7 @@ namespace UniGetUI.Interface
 
             Dictionary<string, PackageManager> ManagerNameReference = new();
 
-            foreach (PackageManager Manager in MainApp.Instance.PackageManagerList)
+            foreach (PackageManager Manager in PEInterface.Managers)
             {
                 ManagerNameReference.Add(Manager.Name.ToLower(), Manager);
             }
@@ -56,9 +50,11 @@ namespace UniGetUI.Interface
 
             foreach (KeyValuePair<string, JsonNode?> keypair in IgnoredUpdatesJson)
             {
-                PackageManager manager = MainApp.Winget; // Manager by default
+                PackageManager manager = PEInterface.WinGet; // Manager by default
                 if (ManagerNameReference.ContainsKey(keypair.Key.Split("\\")[0]))
+                {
                     manager = ManagerNameReference[keypair.Key.Split("\\")[0]];
+                }
 
                 IgnoredUpdatesList.Items.Add(new IgnoredPackage(keypair.Key.Split("\\")[^1], keypair.Value?.ToString() ?? "", manager, IgnoredUpdatesList));
             }
@@ -67,16 +63,20 @@ namespace UniGetUI.Interface
 
         private async void IgnoredUpdatesList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            var package = IgnoredUpdatesList.SelectedItem as IgnoredPackage;
+            IgnoredPackage? package = IgnoredUpdatesList.SelectedItem as IgnoredPackage;
             if (package != null)
+            {
                 await package.RemoveFromIgnoredUpdates();
+            }
         }
 
         public async void ManageIgnoredUpdates_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
         {
             args.Cancel = true;
             foreach (IgnoredPackage package in IgnoredUpdatesList.Items.ToArray())
+            {
                 await package.RemoveFromIgnoredUpdates();
+            }
         }
 
         private void CloseButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
@@ -97,12 +97,18 @@ namespace UniGetUI.Interface
             Id = id;
             Name = CoreTools.FormatAsName(id);
             if (version == "*")
+            {
                 Version = CoreTools.Translate("All versions");
+            }
             else
+            {
                 Version = version;
+            }
+
             Manager = manager;
             List = list;
         }
+
         public async Task RemoveFromIgnoredUpdates()
         {
             string IgnoredId = $"{Manager.Properties.Name.ToLower()}\\{Id}";
@@ -113,12 +119,14 @@ namespace UniGetUI.Interface
                 await File.WriteAllTextAsync(CoreData.IgnoredUpdatesDatabaseFile, IgnoredUpdatesJson.ToString());
             }
 
-            foreach (Package package in MainApp.Instance.MainWindow.NavigationPage.InstalledPage.Packages)
+            foreach (Package package in PEInterface.InstalledPackagesLoader.Packages)
+            {
                 if (package.Id == Id && Manager == package.Manager)
                 {
                     package.SetTag(PackageTag.Default);
                     break;
                 }
+            }
 
             List.Items.Remove(this);
         }

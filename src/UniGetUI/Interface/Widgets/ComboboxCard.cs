@@ -2,11 +2,8 @@ using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using UniGetUI.Core.Logging;
-using UniGetUI.Core;
 using UniGetUI.Core.SettingsEngine;
 using UniGetUI.Core.Tools;
 
@@ -25,10 +22,10 @@ namespace UniGetUI.Interface.Widgets
 
     public sealed class ComboboxCard : SettingsCard
     {
-        private ComboBox _combobox;
-        private ObservableCollection<string> _elements;
-        private Dictionary<string, string> _values_ref;
-        private Dictionary<string, string> _inverted_val_ref;
+        private readonly ComboBox _combobox;
+        private readonly ObservableCollection<string> _elements;
+        private readonly Dictionary<string, string> _values_ref;
+        private readonly Dictionary<string, string> _inverted_val_ref;
 
         public string SettingName
         {
@@ -42,7 +39,7 @@ namespace UniGetUI.Interface.Widgets
             set => SetValue(SettingProperty, value);
         }
 
-        DependencyProperty SettingProperty = DependencyProperty.Register(
+        readonly DependencyProperty SettingProperty = DependencyProperty.Register(
         nameof(SettingName),
         typeof(string),
         typeof(CheckboxCard),
@@ -54,7 +51,7 @@ namespace UniGetUI.Interface.Widgets
             set => SetValue(TextProperty, value);
         }
 
-        DependencyProperty TextProperty;
+        readonly DependencyProperty TextProperty;
 
         public event EventHandler<ComboCardEventArgs>? ValueChanged;
 
@@ -86,7 +83,10 @@ namespace UniGetUI.Interface.Widgets
         public void AddItem(string name, string value, bool translate)
         {
             if (translate)
+            {
                 name = CoreTools.Translate(name);
+            }
+
             _elements.Add(name);
             _values_ref.Add(name, value);
             _inverted_val_ref.Add(value, name);

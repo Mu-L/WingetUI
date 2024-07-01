@@ -1,9 +1,7 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
-using ExternalLibraries.Pickers.Enums;
+﻿using ExternalLibraries.Pickers.Enums;
 using ExternalLibraries.Pickers.Interfaces;
 using ExternalLibraries.Pickers.Structures;
+using System.Runtime.InteropServices;
 
 namespace ExternalLibraries.Pickers.Classes;
 
@@ -32,7 +30,9 @@ internal static class Helper
             }
 
             if (dialog.Show(windowHandle) != 0)
+            {
                 return string.Empty;
+            }
 
             dialog.GetResult(out IShellItem item);
             item.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out string path);
@@ -61,10 +61,14 @@ internal static class Helper
             }
 
             if (!string.IsNullOrEmpty(name))
+            {
                 dialog.SetFileName(name);
+            }
 
             if (dialog.Show(windowHandle) != 0)
+            {
                 return string.Empty;
+            }
 
             dialog.GetResult(out IShellItem item);
             item.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out string path);

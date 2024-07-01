@@ -1,6 +1,4 @@
-﻿using System.ComponentModel;
-using System.Diagnostics;
-using System.Text.Json;
+﻿using System.Text.Json;
 using UniGetUI.Core.Data;
 using UniGetUI.Core.Logging;
 using UniGetUI.Core.SettingsEngine;
@@ -65,10 +63,13 @@ namespace UniGetUI.Core.IconEngine
             {
                 Uri DownloadUrl = new("https://raw.githubusercontent.com/marticliment/WingetUI/main/WebBasedData/screenshot-database-v2.json");
                 if (Settings.Get("IconDataBaseURL"))
-                    DownloadUrl = new Uri(Settings.GetValue("IconDataBaseURL"));
-
-                using (HttpClient client = new())
                 {
+                    DownloadUrl = new Uri(Settings.GetValue("IconDataBaseURL"));
+                }
+
+                using (HttpClient client = new(CoreData.GenericHttpClientParameters))
+                {
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd(CoreData.UserAgentString);
                     string fileContents = await client.GetStringAsync(DownloadUrl);
                     await File.WriteAllTextAsync(IconsAndScreenshotsFile, fileContents);
                 }
@@ -93,7 +94,10 @@ namespace UniGetUI.Core.IconEngine
             {
                 IconScreenshotDatabase_v2 JsonData = JsonSerializer.Deserialize<IconScreenshotDatabase_v2>(await File.ReadAllTextAsync(IconsAndScreenshotsFile));
                 if (JsonData.icons_and_screenshots != null)
+                {
                     IconDatabaseData = JsonData.icons_and_screenshots;
+                }
+
                 __icon_count = new IconCount()
                     {
                      PackagesWithIconCount = JsonData.package_count.packages_with_icon,

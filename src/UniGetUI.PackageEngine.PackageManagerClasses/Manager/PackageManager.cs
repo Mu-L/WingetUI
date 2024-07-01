@@ -1,5 +1,4 @@
-﻿using System.ComponentModel;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 using UniGetUI.Core.Classes;
 using UniGetUI.Core.Data;
@@ -7,11 +6,13 @@ using UniGetUI.Core.IconEngine;
 using UniGetUI.Core.Logging;
 using UniGetUI.Core.SettingsEngine;
 using UniGetUI.PackageEngine.Classes.Manager.BaseProviders;
+using UniGetUI.PackageEngine.Classes.Manager.Classes;
 using UniGetUI.PackageEngine.Classes.Manager.Interfaces;
 using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
 using UniGetUI.PackageEngine.Classes.Manager.Providers;
 using UniGetUI.PackageEngine.Classes.Packages;
 using UniGetUI.PackageEngine.Enums;
+using UniGetUI.PackageEngine.ManagerClasses.Classes;
 using UniGetUI.PackageEngine.PackageClasses;
 
 namespace UniGetUI.PackageEngine.ManagerClasses.Manager
@@ -27,16 +28,19 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
         public static string[] FALSE_PACKAGE_IDS = new string[] { "" };
         public static string[] FALSE_PACKAGE_VERSIONS = new string[] { "" };
         public bool ManagerReady { get; set; } = false;
+        public ManagerLogger TaskLogger;
+        public IEnumerable<ManagerDependency> Dependencies { get; protected set; } = [];
 
         public BaseSourceProvider<PackageManager>? SourceProvider;
         public BasePackageDetailsProvider<PackageManager>? PackageDetailsProvider;
-        private bool __base_constructor_called = false;
+        private readonly bool __base_constructor_called = false;
 
         public PackageManager()
         {
             DefaultSource = Properties.DefaultSource;
             Name = Properties.Name;
             __base_constructor_called = true;
+            TaskLogger = new ManagerLogger(this);
         }
 
 
@@ -48,13 +52,21 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
         {
             // BEGIN integrity check
             if (!__base_constructor_called)
+            {
                 throw new Exception($"The Manager {Properties.Name} has not called the base constructor.");
+            }
             else if (Capabilities.IsDummy)
+            {
                 throw new Exception($"The current instance of PackageManager with name ${Properties.Name} does not have a valid Capabilities object");
+            }
             else if (Properties.IsDummy)
+            {
                 throw new Exception($"The current instance of PackageManager with name ${Properties.Name} does not have a valid Properties object");
+            }
             else if (Capabilities.SupportsCustomSources && SourceProvider == null)
+            {
                 throw new Exception($"Manager {Name} has been declared as SupportsCustomSources but has no helper associated with it");
+            }
             // END integrity check
 
             DefaultSource = Properties.DefaultSource;
@@ -147,10 +159,10 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
             if (!IsReady()) { Logger.Warn($"Manager {Name} is disabled but yet FindPackages was called"); return []; };
             try
             {
-                Package[] packages = await FindPackages_UnSafe(query);
+                Package[] packages = await FindPackages_UnSafe(query).WaitAsync(TimeSpan.FromSeconds(60));
                 for (int i = 0; i < packages.Length; i++)
                 {
-                    packages[i] = PackageFactory.GetAvailablePackageIfRepeated(packages[i]);
+                    packages[i] = PackageCacher.GetAvailablePackage(packages[i]);
                 }
                 Logger.Info($"Found {packages.Length} available packages from {Name} with the query {query}");
                 return packages;
@@ -174,10 +186,13 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
             if (!IsReady()) { Logger.Warn($"Manager {Name} is disabled but yet GetAvailableUpdates was called"); return []; };
             try
             {
-                await RefreshPackageIndexes();
-                Package[] packages = await GetAvailableUpdates_UnSafe();
+                await RefreshPackageIndexes().WaitAsync(TimeSpan.FromSeconds(60));
+                Package[] packages = await GetAvailableUpdates_UnSafe().WaitAsync(TimeSpan.FromSeconds(60));
                 for (int i = 0; i < packages.Length; i++)
-                    packages[i] = PackageFactory.GetUpgradablePackageIfRepeated(packages[i]);
+                {
+                    packages[i] = PackageCacher.GetUpgradablePackage(packages[i]);
+                }
+
                 Logger.Info($"Found {packages.Length} available updates from {Name}");
                 return packages;
             }
@@ -199,9 +214,12 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
             if (!IsReady()) { Logger.Warn($"Manager {Name} is disabled but yet GetInstalledPackages was called"); return []; };
             try
             {
-                Package[] packages = await GetInstalledPackages_UnSafe();
+                Package[] packages = await GetInstalledPackages_UnSafe().WaitAsync(TimeSpan.FromSeconds(60));
                 for (int i = 0; i < packages.Length; i++)
-                    packages[i] = PackageFactory.GetInstalledPackageIfRepeated(packages[i]);
+                {
+                    packages[i] = PackageCacher.GetInstalledPackage(packages[i]);
+                }
+
                 Logger.Info($"Found {packages.Length} installed packages from {Name}");
                 return packages;
             }
@@ -227,7 +245,7 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
         /// Each manager MUST implement this method.
         /// </summary>
         /// <returns>An array of UpgradablePackage objects</returns>
-        protected abstract Task<UpgradablePackage[]> GetAvailableUpdates_UnSafe();
+        protected abstract Task<Package[]> GetAvailableUpdates_UnSafe();
 
         /// <summary>
         /// Returns an array of Package objects containing the installed packages reported by the manager.
@@ -321,9 +339,13 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
         private void AssertSourceCompatibility(string MethodName)
         {
             if (!Capabilities.SupportsCustomSources)
+            {
                 throw new Exception($"Manager {Name} does not support custom sources but yet {MethodName} method was called.\n {Environment.StackTrace}");
+            }
             else if (SourceProvider == null)
+            {
                 throw new Exception($"Manager {Name} does support custom sources but yet the source helper is null");
+            }
         }
 #pragma warning disable CS8602
         public ManagerSource GetSourceOrDefault(string SourceName)
@@ -362,7 +384,7 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
             try
             {
                 AssertSourceCompatibility("GetSources");
-                var result = await SourceProvider.GetSources();
+                ManagerSource[] result = await SourceProvider.GetSources().WaitAsync(TimeSpan.FromSeconds(60));
                 Logger.Debug($"Loaded {result.Length} sources for manager {Name}");
                 return result;
             }
@@ -387,24 +409,31 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
         private void AssertPackageDetailsCompatibility(string MethodName)
         {
             if (PackageDetailsProvider == null)
+            {
                 throw new Exception($"Manager {Name} does not have a valid PackageDetailsProvider helper");
+            }
         }
 #pragma warning disable CS8602
-        public async Task<PackageDetails> GetPackageDetails(Package package)
+        /*public async Task<PackageDetails> GetPackageDetails(Package package)
         {
-            if (!IsReady()) { Logger.Warn($"Manager {Name} is disabled but yet GetPackageDetails was called"); return new(package); };
+            var details = new PackageDetails(package);
+            await GetPackageDetails(details);
+            return details;
+        }*/
+
+        public async Task GetPackageDetails(PackageDetails details)
+        {
+            if (!IsReady()) { Logger.Warn($"Manager {Name} is disabled but yet GetPackageDetails was called"); return; };
             try
             {
                 AssertPackageDetailsCompatibility("GetPackageDetails");
-                var details = await PackageDetailsProvider.GetPackageDetails(package);
-                Logger.Info($"Loaded details for package {package.Id} on manager {Name}");
-                return details;
+                await PackageDetailsProvider.GetPackageDetails(details);
+                Logger.Info($"Loaded details for package {details.Package.Id} on manager {Name}");
             }
             catch (Exception e)
             {
                 Logger.Error("Error finding installed packages on manager " + Name);
                 Logger.Error(e);
-                return new PackageDetails(package);
             }
         }
 
@@ -415,9 +444,13 @@ namespace UniGetUI.PackageEngine.ManagerClasses.Manager
             {
                 AssertPackageDetailsCompatibility("GetPackageVersions");
                 if (package.Manager.Capabilities.SupportsCustomVersions)
+                {
                     return await PackageDetailsProvider.GetPackageVersions(package);
+                }
                 else
+                {
                     return [];
+                }
             }
             catch (Exception e)
             {

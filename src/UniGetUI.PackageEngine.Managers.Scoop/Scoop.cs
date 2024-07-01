@@ -1,44 +1,50 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using UniGetUI.Core;
-using UniGetUI.PackageEngine.Classes;
-using UniGetUI.PackageEngine.Enums;
 using UniGetUI.Core.Logging;
-using UniGetUI.Core.Tools;
 using UniGetUI.Core.SettingsEngine;
-using UniGetUI.PackageEngine.PackageClasses;
-using UniGetUI.PackageEngine.ManagerClasses.Manager;
+using UniGetUI.Core.Tools;
+using UniGetUI.PackageEngine.Classes.Manager.Classes;
 using UniGetUI.PackageEngine.Classes.Manager.ManagerHelpers;
-using static System.Runtime.InteropServices.JavaScript.JSType;
-using Microsoft.VisualBasic;
+using UniGetUI.PackageEngine.Enums;
+using UniGetUI.PackageEngine.ManagerClasses.Manager;
+using UniGetUI.PackageEngine.PackageClasses;
 
 namespace UniGetUI.PackageEngine.Managers.ScoopManager
 {
 
     public class Scoop : PackageManager
     {
-        new public static string[] FALSE_PACKAGE_NAMES = new string[] { "" };
-        new public static string[] FALSE_PACKAGE_IDS = new string[] { "No" };
-        new public static string[] FALSE_PACKAGE_VERSIONS = new string[] { "Matches" };
+        new public static string[] FALSE_PACKAGE_NAMES = [""];
+        new public static string[] FALSE_PACKAGE_IDS = ["No"];
+        new public static string[] FALSE_PACKAGE_VERSIONS = ["Matches"];
 
         long LastScoopSourceUpdateTime = 0;
 
         public Scoop(): base()
         {
+            Dependencies = [
+                // Scoop-Search is required for search to work
+                new ManagerDependency(
+                    "Scoop-Search",
+                    Path.Join(Environment.SystemDirectory, "windowspowershell\\v1.0\\powershell.exe"),
+                    "-ExecutionPolicy Bypass -NoLogo -NoProfile -Command \"& {scoop install main/scoop-search; if($error.count -ne 0){pause}}\"",
+                    async () => (await CoreTools.Which("scoop-search.exe")).Item1),
+                // GIT is required for scoop updates to work
+                new ManagerDependency(
+                    "Git",
+                    Path.Join(Environment.SystemDirectory, "windowspowershell\\v1.0\\powershell.exe"),
+                    "-ExecutionPolicy Bypass -NoLogo -NoProfile -Command \"& {scoop install main/git; if($error.count -ne 0){pause}}\"",
+                    async () => (await CoreTools.Which("git.exe")).Item1)
+            ];
+
             Capabilities = new ManagerCapabilities()
             {
                 CanRunAsAdmin = true,
                 CanSkipIntegrityChecks = true,
                 CanRemoveDataOnUninstall = true,
                 SupportsCustomArchitectures = true,
-                SupportedCustomArchitectures = new Architecture[] { Architecture.X86, Architecture.X64, Architecture.Arm64 },
+                SupportedCustomArchitectures = [Architecture.X86, Architecture.X64, Architecture.Arm64],
                 SupportsCustomScopes = true,
                 SupportsCustomSources = true,
                 Sources = new ManagerSource.Capabilities()
@@ -80,7 +86,7 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
         {
             List<Package> Packages = new();
 
-            var which_res = await CoreTools.Which("scoop-search.exe");
+            Tuple<bool, string> which_res = await CoreTools.Which("scoop-search.exe");
             string path = which_res.Item2;
             if (!which_res.Item1)
             {
@@ -90,12 +96,18 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                     {
                         FileName = Status.ExecutablePath,
                         Arguments = Properties.ExecutableCallArgs + " install main/scoop-search",
-                        UseShellExecute = true,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
                         CreateNoWindow = true
                     }
                 };
+                ManagerClasses.Classes.ProcessTaskLogger aux_logger = TaskLogger.CreateNew(LoggableTaskType.InstallManagerDependency, proc);
                 proc.Start();
+                aux_logger.AddToStdOut(await proc.StandardOutput.ReadToEndAsync());
+                aux_logger.AddToStdErr(await proc.StandardError.ReadToEndAsync());
                 await proc.WaitForExitAsync();
+                aux_logger.Close(proc.ExitCode);
                 path = "scoop-search.exe";
             }
 
@@ -112,15 +124,15 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                     StandardOutputEncoding = System.Text.Encoding.UTF8
                 }
             };
+            ManagerClasses.Classes.ProcessTaskLogger logger = TaskLogger.CreateNew(LoggableTaskType.FindPackages, p);
 
             p.Start();
 
             string? line;
             ManagerSource source = Properties.DefaultSource;
-            string output = "";
             while ((line = await p.StandardOutput.ReadLineAsync()) != null)
             {
-                output += line + "\n";
+                logger.AddToStdOut(line);
                 if (line.StartsWith("'"))
                 {
                     string sourceName = line.Split(" ")[0].Replace("'", "");
@@ -130,31 +142,42 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                 {
                     string[] elements = line.Trim().Split(" ");
                     if (elements.Length < 2)
+                    {
                         continue;
+                    }
 
-                    for (int i = 0; i < elements.Length; i++) elements[i] = elements[i].Trim();
+                    for (int i = 0; i < elements.Length; i++)
+                    {
+                        elements[i] = elements[i].Trim();
+                    }
 
                     if (FALSE_PACKAGE_IDS.Contains(elements[0]) || FALSE_PACKAGE_VERSIONS.Contains(elements[1]))
+                    {
                         continue;
+                    }
 
                     Packages.Add(new Package(Core.Tools.CoreTools.FormatAsName(elements[0]), elements[0], elements[1].Replace("(", "").Replace(")", ""), source, this));
                 }
             }
-            output += await p.StandardError.ReadToEndAsync();
-            LogOperation(p, output);
+            logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+            await p.WaitForExitAsync();
+            logger.Close(p.ExitCode);
             return Packages.ToArray();
         }
 
-        protected override async Task<UpgradablePackage[]> GetAvailableUpdates_UnSafe()
+        protected override async Task<Package[]> GetAvailableUpdates_UnSafe()
         {
             Dictionary<string, Package> InstalledPackages = new();
             foreach (Package InstalledPackage in await GetInstalledPackages())
             {
                 if (!InstalledPackages.ContainsKey(InstalledPackage.Id + "." + InstalledPackage.Version))
+                {
                     InstalledPackages.Add(InstalledPackage.Id + "." + InstalledPackage.Version, InstalledPackage);
+                }
             }
 
-            List<UpgradablePackage> Packages = new();
+            List<Package> Packages = new();
+
 
             Process p = new()
             {
@@ -169,30 +192,39 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                     StandardOutputEncoding = System.Text.Encoding.UTF8
                 }
             };
+            ManagerClasses.Classes.ProcessTaskLogger logger = TaskLogger.CreateNew(LoggableTaskType.ListUpdates, p);
 
             p.Start();
 
             string? line;
             bool DashesPassed = false;
-            string output = "";
             while ((line = await p.StandardOutput.ReadLineAsync()) != null)
             {
-                output += line + "\n";
+                logger.AddToStdOut(line);
                 if (!DashesPassed)
                 {
                     if (line.Contains("---"))
+                    {
                         DashesPassed = true;
+                    }
                 }
                 else if (line.Trim() != "")
                 {
                     string[] elements = Regex.Replace(line, " {2,}", " ").Trim().Split(" ");
                     if (elements.Length < 3)
+                    {
                         continue;
+                    }
 
-                    for (int i = 0; i < elements.Length; i++) elements[i] = elements[i].Trim();
+                    for (int i = 0; i < elements.Length; i++)
+                    {
+                        elements[i] = elements[i].Trim();
+                    }
 
                     if (FALSE_PACKAGE_IDS.Contains(elements[0]) || FALSE_PACKAGE_VERSIONS.Contains(elements[1]))
+                    {
                         continue;
+                    }
 
                     if (!InstalledPackages.ContainsKey(elements[0] + "." + elements[1]))
                     {
@@ -200,11 +232,12 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                         continue;
                     }
 
-                    Packages.Add(new UpgradablePackage(Core.Tools.CoreTools.FormatAsName(elements[0]), elements[0], elements[1], elements[2], InstalledPackages[elements[0] + "." + elements[1]].Source, this, InstalledPackages[elements[0] + "." + elements[1]].Scope));
+                    Packages.Add(new Package(CoreTools.FormatAsName(elements[0]), elements[0], elements[1], elements[2], InstalledPackages[elements[0] + "." + elements[1]].Source, this, InstalledPackages[elements[0] + "." + elements[1]].Scope));
                 }
             }
-            output += await p.StandardError.ReadToEndAsync();
-            LogOperation(p, output);
+            logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+            await p.WaitForExitAsync();
+            logger.Close(p.ExitCode);
             return Packages.ToArray();
         }
 
@@ -225,40 +258,51 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                     StandardOutputEncoding = System.Text.Encoding.UTF8
                 }
             };
-
+            ManagerClasses.Classes.ProcessTaskLogger logger = TaskLogger.CreateNew(LoggableTaskType.ListPackages, p);
             p.Start();
 
             string? line;
             bool DashesPassed = false;
-            string output = "";
             while ((line = await p.StandardOutput.ReadLineAsync()) != null)
             {
-                output += line + "\n";
+                logger.AddToStdOut(line);
                 if (!DashesPassed)
                 {
                     if (line.Contains("---"))
+                    {
                         DashesPassed = true;
+                    }
                 }
                 else if (line.Trim() != "")
                 {
                     string[] elements = Regex.Replace(line, " {2,}", " ").Trim().Split(" ");
                     if (elements.Length < 3)
+                    {
                         continue;
+                    }
 
-                    for (int i = 0; i < elements.Length; i++) elements[i] = elements[i].Trim();
+                    for (int i = 0; i < elements.Length; i++)
+                    {
+                        elements[i] = elements[i].Trim();
+                    }
 
                     if (FALSE_PACKAGE_IDS.Contains(elements[0]) || FALSE_PACKAGE_VERSIONS.Contains(elements[1]))
+                    {
                         continue;
+                    }
 
                     PackageScope scope = PackageScope.User;
                     if (line.Contains("Global install"))
+                    {
                         scope = PackageScope.Global;
+                    }
 
                     Packages.Add(new Package(Core.Tools.CoreTools.FormatAsName(elements[0]), elements[0], elements[1], GetSourceOrDefault(elements[2]), this, scope));
                 }
             }
-            output += await p.StandardError.ReadToEndAsync();
-            LogOperation(p, output);
+            logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+            await p.WaitForExitAsync();
+            logger.Close(p.ExitCode);
             return Packages.ToArray();
         }
 
@@ -277,7 +321,10 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                 return OperationVeredict.AutoRetry;
             }
             if (output_string.Contains("was uninstalled"))
+            {
                 return OperationVeredict.Succeeded;
+            }
+
             return OperationVeredict.Failed;
         }
         public override OperationVeredict GetInstallOperationVeredict(Package package, InstallationOptions options, int ReturnCode, string[] Output)
@@ -294,7 +341,10 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                 return OperationVeredict.AutoRetry;
             }
             if (output_string.Contains("ERROR"))
+            {
                 return OperationVeredict.Failed;
+            }
+
             return OperationVeredict.Succeeded;
         }
         public override OperationVeredict GetUpdateOperationVeredict(Package package, InstallationOptions options, int ReturnCode, string[] Output)
@@ -310,13 +360,19 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
             parameters.Add(package.Source.Name + "/" + package.Id);
 
             if (package.Scope == PackageScope.Global)
+            {
                 parameters.Add("--global");
+            }
 
             if (options.CustomParameters != null)
+            {
                 parameters.AddRange(options.CustomParameters);
+            }
 
             if (options.RemoveDataOnUninstall)
+            {
                 parameters.Add("--purge");
+            }
 
             return parameters.ToArray();
         }
@@ -367,7 +423,7 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                 return;
             }
             LastScoopSourceUpdateTime = DateTime.Now.Ticks;
-            Process process = new();
+            Process p = new();
             ProcessStartInfo StartInfo = new()
             {
                 FileName = Status.ExecutablePath,
@@ -379,9 +435,13 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
                 CreateNoWindow = true,
                 StandardOutputEncoding = System.Text.Encoding.UTF8
             };
-            process.StartInfo = StartInfo;
-            process.Start();
-            await process.WaitForExitAsync();
+            p.StartInfo = StartInfo;
+            ManagerClasses.Classes.ProcessTaskLogger logger = TaskLogger.CreateNew(LoggableTaskType.RefreshIndexes, p);
+            p.Start();
+            logger.AddToStdOut(await p.StandardOutput.ReadToEndAsync());
+            logger.AddToStdErr(await p.StandardError.ReadToEndAsync());
+            await p.WaitForExitAsync();
+            logger.Close(p.ExitCode);
         }
 
         protected override async Task<ManagerStatus> LoadManager()
@@ -411,7 +471,9 @@ namespace UniGetUI.PackageEngine.Managers.ScoopManager
 
             Status = status; // Wee need this for the RunCleanup method to get the executable path
             if (status.Found && IsEnabled() && Settings.Get("EnableScoopCleanup"))
+            {
                 RunCleanup();
+            }
 
             return status;
         }
